@@ -42,6 +42,64 @@ An %u in the argument list is replaced by the URL to be played."
   :group 'org-export-ehtml
   :type '(repeat (cons symbol (repeat string))))
 
+(defcustom org-ehtml-play-buffer "*ehtml-play*"
+  "Name of the process buffer of the player."
+  :group 'org-export-ehtml
+  :type 'string)
+
+(defmacro org-ehtml-play-with-buffer (&rest body)
+  "Run BODY in `org-ehtml-play-buffer'."
+  (declare (debug body))
+  `(with-current-buffer (get-buffer-create org-ehtml-play-buffer)
+     ,@body))
+
+(defconst org-ehtml-play-cdrom-type-alist
+  '(("Disc found in drive: data disc" . data)
+    ("Disc found in drive: audio disc" . audio)
+    ("No disc" . no-disc)
+    ("CD tray is open" . open)
+    ("Drive is not ready" . not-ready))
+  "Alist mapping responses of setcd to cdrom types.")
+
+(defun org-ehtml-play-cdrom-type ()
+  "Detect cdrom type with the help of setcd."
+  (org-ehtml-play-with-buffer
+   (goto-char (point-max))
+   (unless (bolp)
+     (insert "\n"))
+   (let (type
+	 (pt (point-max)))
+     (while 
+	 (progn
+	   (when (eq type 'not-ready)
+	     (delete-region pt (point-max)))
+	   (setq pt (point-max))
+	   (call-process "setcd"
+			 nil org-ehtml-play-buffer nil
+			 "-i")
+	   (goto-char pt)
+	   (let ((found (re-search-forward (concat "^[[:space:]]*" (regexp-opt (mapcar #'car org-ehtml-play-cdrom-type-alist) t)) nil t)))
+	     (cl-assert found nil "Output of setcd not recognized"))
+	   (setq type (alist-get (match-string 1) org-ehtml-play-cdrom-type-alist nil nil #'string-equal))
+	   (eq type 'not-ready)))
+       type)))
+
+(defun org-ehtml-play-cdrom ()
+  "Play audio CD and data CD with mp3-files."
+  (let ((type (org-ehtml-play-cdrom-type)))
+    (cl-case type
+      (audio
+       (org-ehtml-play 'mplayer "cdda://"))
+      (data
+       (call-process "mount" nil org-ehtml-play-buffer nil "/dev/cdrom")
+       (org-ehtml-play 'mplayer "file:///mnt/cdrom/*.mp3")
+       )
+      (t
+       (error "Unexpected cdrom type in `org-ehtml-play-cdrom'")))
+    ))
+
+(put 'org-ehtml-play-cdrom 'org-ehtml-safe-form '(t))
+
 (defun org-ehtml-play (player url)
   "Start URL in PLAYER.
 PLAYER is mapped by `org-ehtml-players' to
@@ -49,8 +107,8 @@ a list of a command with arguments.
 %u is replaced by URL in the argument list."
   (when (process-live-p org-ehtml-player-process)
     (kill-process org-ehtml-player-process))
-  (with-current-buffer (get-buffer-create "*ehtml-play*")
-    (erase-buffer))
+  (org-ehtml-play-with-buffer
+   (erase-buffer))
   (when-let ((fun-list (alist-get player org-ehtml-players)))
     (setq fun-list (mapcar
 		    (lambda (str)
@@ -58,24 +116,38 @@ a list of a command with arguments.
 					(cons ?u url))))
 		    fun-list))
     (setq org-ehtml-player-process
-	  (apply #'start-process "ehtml-play" "*ehtml-play*"
+	  (apply #'start-process "ehtml-play" org-ehtml-play-buffer
 		 fun-list))
-    (with-current-buffer "*ehtml-play*"
+    (org-ehtml-play-with-buffer
       (write-region nil nil "/tmp/ehtml.log" t))
     ))
 
+(defun org-ehtml-play-check-backend (backend)
+  "Only accept ehtml backend for ehtml links."
+  (unless (memq backend '(ehtml html)) ;; This should be (eq backend 'ehtml), but there is actually a bug in `org-html-link'.
+    (user-error "Org ehtml links can only be exported to ehtml")))
+  
 (defun org-ehtml-play-link-export (player path description backend)
   "Export links of type [[ehtml-PLAYERNAME:PATH][DESCRIPTION]].
 The PLAYER is mapped to a command by `org-ehtml-players'.
 Only ehtml BACKEND is supported."
-  (unless (memq backend '(ehtml html)) ;; This should be (eq backend 'ehtml), but there is actually a bug in `org-html-link'.
-    (user-error "Org ehtml links can only be exported to ehtml"))
+  (org-ehtml-play-check-backend backend)
   (format "<a href=\"?ehtml-query=%s\">%s</a>"
 	  (url-encode-url (format "%S" (list 'org-ehtml-play (list 'quote player) path)))
 	  description))
 
 (put 'org-ehtml-play 'org-ehtml-safe-form '(t org-ehtml-qsymbol-p stringp))
 ;; (org-ehtml-safe-form-p '(org-ehtml-play 'mplayer "http://test"))
+
+(org-link-set-parameters "ehtml-cdrom"
+			 :follow
+			 (lambda (_url) (org-ehtml-play-cdrom))
+			 :export
+			 (lambda (_path description backend)
+			   (org-ehtml-play-check-backend backend)
+			   (concat "<a href=\"?ehtml-query="
+				   (url-encode-url "(org-ehtml-play-cdrom)")
+				   "\">" description "</a>")))
 
 (org-link-set-parameters "ehtml-mplayer"
 			 :follow

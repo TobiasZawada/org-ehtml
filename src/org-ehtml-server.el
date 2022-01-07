@@ -84,7 +84,7 @@ as their only argument.")
     (cond
      ((assoc "src_block_name" headers)
       (org-ehtml-src-block-handler request))
-     ((alist-get "ehtml-query" headers nil nil 'string-equal)
+     ((assoc "ehtml-query" headers)
       (org-ehtml-query-handler request))
      (t
       (let ((path (ws-in-directory-p org-ehtml-docroot
@@ -207,7 +207,7 @@ as their only argument.")
         (let* ((org-confirm-babel-evaluate nil)
 	       (result (eval `(org-sbe ,src-block-name))))
           (run-hook-with-args 'org-ehtml-after-src-block request src-block-name result)))
-      (ws-response-header process 200
+      (ws-response-header process 204
 			  '("Content-type" . "text/html; charset=utf-8")))
     ))
 
@@ -235,7 +235,7 @@ as their only argument.")
   "Hook run after handling queries ?ehtml-query=...")
 
 (defun org-ehtml-query-handler (request)
-  "Run the source block :src_block_name in REQUEST."
+  "Run the ehtml-query in REQUEST."
   (with-slots (process headers) request
     (let* ((query (alist-get "ehtml-query" headers nil nil #'string-equal)))
       (cl-assert (stringp query) nil "Internal error in `org-ehtml-src-block-handler'. Expected query url, got %s" query)
@@ -246,7 +246,7 @@ as their only argument.")
 		      (user-error "Not a safe command for ehtml query: %s" cmd)))
 		 (result (eval cmd)))
         (run-hook-with-args 'org-ehtml-after-query request cmd result)))
-    (ws-response-header process 200
+    (ws-response-header process 204
 			'("Content-type" . "text/html; charset=utf-8"))))
 
 (provide 'org-ehtml-server)
