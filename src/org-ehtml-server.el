@@ -84,7 +84,7 @@ as their only argument.")
     (cond
      ((assoc "src_block_name" headers)
       (org-ehtml-src-block-handler request))
-     ((assoc "ehtml-query" headers)
+     ((assoc "ehtml_query" headers)
       (org-ehtml-query-handler request))
      (t
       (let ((path (ws-in-directory-p org-ehtml-docroot
@@ -232,12 +232,12 @@ as their only argument.")
 	     finally return t)))
 
 (defvar org-ehtml-after-query nil
-  "Hook run after handling queries ?ehtml-query=...")
+  "Hook run after handling queries ?ehtml_query=...")
 
 (defun org-ehtml-query-handler (request)
   "Run the ehtml-query in REQUEST."
   (with-slots (process headers) request
-    (let* ((query (alist-get "ehtml-query" headers nil nil #'string-equal)))
+    (let* ((query (alist-get "ehtml_query" headers nil nil #'string-equal)))
       (cl-assert (stringp query) nil "Internal error in `org-ehtml-src-block-handler'. Expected query url, got %s" query)
       (when-let ((cmd (read query))
 		 ((or (consp cmd)

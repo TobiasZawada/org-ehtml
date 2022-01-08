@@ -95,3 +95,18 @@ function run_src_block(arg_src_block_name) {
     }
   });
 }
+
+function run_elisp_form(form) {
+  var here = window.location.pathname;
+  $.ajax({
+    type: 'GET',
+    url: here,
+      data: {
+	  ehtml_query: form,
+          path: here},
+    statusCode: {
+      403: function(){ alert("Unauthorized"); },
+      500: function(error){ alert('error:'+error); }
+    }
+  });
+}

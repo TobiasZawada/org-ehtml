@@ -32,7 +32,7 @@
 
 (defcustom org-ehtml-players
   '((mplayer .
-     ("mplayer" "%u"))
+     ("mplayer" "-cache" "8192" "%u"))
     (vlc .
      ("vlc" "-Idummy" "%u")))
   "Mapping of player symbols to command lists.
@@ -92,19 +92,39 @@ An %u in the argument list is replaced by the URL to be played."
        (org-ehtml-play 'mplayer "cdda://"))
       (data
        (call-process "mount" nil org-ehtml-play-buffer nil "/dev/cdrom")
-       (org-ehtml-play 'mplayer "file:///mnt/cdrom/*.mp3")
-       )
+       (let ((play-list (mapcar (lambda (file)
+				  (format "file://%s" file))
+				(directory-files "/mnt/cdrom" t "\\.mp3\\'"))))
+	 (when (process-live-p org-ehtml-player-process)
+	   (kill-process org-ehtml-player-process))
+	 (org-ehtml-play-with-buffer
+	  (erase-buffer)
+	  (setq org-ehtml-player-process
+		(apply #'start-process "ehtml-play" (current-buffer)
+		       "mplayer"
+		       play-list))
+	  (write-region nil nil "/tmp/ehtml.log" t))
+	 ))
       (t
        (error "Unexpected cdrom type in `org-ehtml-play-cdrom'")))
     ))
 
 (put 'org-ehtml-play-cdrom 'org-ehtml-safe-form '(t))
 
+(defun org-ehtml-play-send-char (chars)
+  "Send string CHARS to org-ehtml-player-process."
+  (unless (process-live-p org-ehtml-player-process)
+    (error "Player process not running."))
+  (cl-assert (stringp chars) "Argument %S is not a character string" chars)
+  (process-send-string org-ehtml-player-process chars))
+
+(put 'org-ehtml-play-send-char 'org-ehtml-safe-form '(t stringp))
+
 (defun org-ehtml-play (player url)
-  "Start URL in PLAYER.
+  "Start URLS in PLAYER.
 PLAYER is mapped by `org-ehtml-players' to
 a list of a command with arguments.
-%u is replaced by URL in the argument list."
+%u is replaced by URLS in the argument list."
   (when (process-live-p org-ehtml-player-process)
     (kill-process org-ehtml-player-process))
   (org-ehtml-play-with-buffer
@@ -132,22 +152,49 @@ a list of a command with arguments.
 The PLAYER is mapped to a command by `org-ehtml-players'.
 Only ehtml BACKEND is supported."
   (org-ehtml-play-check-backend backend)
-  (format "<a href=\"?ehtml-query=%s\">%s</a>"
+  (format "<a href=\"?ehtml_query=%s\">%s</a>"
 	  (url-encode-url (format "%S" (list 'org-ehtml-play (list 'quote player) path)))
 	  description))
 
 (put 'org-ehtml-play 'org-ehtml-safe-form '(t org-ehtml-qsymbol-p stringp))
 ;; (org-ehtml-safe-form-p '(org-ehtml-play 'mplayer "http://test"))
 
+(defun org-ehtml-player-button (button label)
+  "Define an html button with LABEL sending BUTTON.
+BUTTON is a string that is sent to `org-ehtml-player-process'."
+  (format
+   "<button type=\"button\" onclick=\"run_elisp_form('%s')\">%s</button> "
+   (url-encode-url (format "(org-ehtml-play-send-char \"%s\")" button))
+   label)
+  )
+;; Test:
+;; (org-ehtml-player-button "a" "→")
+
+(defun org-ehtml-play-cdrom-export (_path description backend)
+  "Export ehtml string for cd player.
+DESCRIPTION is the label.
+Check whether BACKEND is really ehtml."
+  (org-ehtml-play-check-backend backend)
+  (concat
+   "<a href=\"?ehtml_query="
+   (url-encode-url "(org-ehtml-play-cdrom)")
+   "\">" description "</a> "
+   (org-ehtml-player-button "p" "Pause/Play")
+   (org-ehtml-player-button "g" "Prev")
+   (org-ehtml-player-button "y" "Next")
+   (org-ehtml-player-button "\x1b\ D" "←10")
+   (org-ehtml-player-button "\x1b\ C" "→10")
+   (org-ehtml-player-button "\x1b\ A" "←60")
+   (org-ehtml-player-button "\x1b\ B" "→60")
+   (org-ehtml-player-button "\x1bS" "←600")
+   (org-ehtml-player-button "\x1bT" "→600")
+   )
+  )
+
 (org-link-set-parameters "ehtml-cdrom"
 			 :follow
 			 (lambda (_url) (org-ehtml-play-cdrom))
-			 :export
-			 (lambda (_path description backend)
-			   (org-ehtml-play-check-backend backend)
-			   (concat "<a href=\"?ehtml-query="
-				   (url-encode-url "(org-ehtml-play-cdrom)")
-				   "\">" description "</a>")))
+			 :export #'org-ehtml-play-cdrom-export)
 
 (org-link-set-parameters "ehtml-mplayer"
 			 :follow
